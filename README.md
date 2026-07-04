@@ -178,7 +178,7 @@ MIT License — see [LICENSE](LICENSE)
 
 ## Author
 
-Built with ❤️ by [Your Name](https://github.com/JW2WW)
+Built with ❤️ by [JW2WW](https://github.com/JW2WW)
 
 ---
 
