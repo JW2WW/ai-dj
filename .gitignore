@@ -23,6 +23,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # IDE
 .vscode/
@@ -30,10 +31,11 @@ wheels/
 *.swp
 *.swo
 *~
+.DS_Store
 
 # OS
-.DS_Store
 Thumbs.db
+*.lnk
 
 # Application data (created at runtime)
 data/
@@ -41,15 +43,30 @@ config.yaml
 .env
 *.db
 
-# PyInstaller
+# Build artifacts
 build/
 dist/
+*.spec
 
 # Test/temporary files
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
+*.cover
 
 # Large files
 *.mp3
+*.flac
+*.wav
+*.m4a
 *.zip
+*.tar.gz
+
+# Claude Code configuration (user-specific)
+.claude/
+
+# Editor backups
+*.bak
+*~
+.#*
