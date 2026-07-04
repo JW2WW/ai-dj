@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  ai-dj:
+    build: .
+    image: ai-dj:latest
+    container_name: ai-dj
+    restart: unless-stopped
+
+    # Pass API keys via environment or .env file
+    # IMPORTANT: Never hardcode keys in docker-compose.yml; use a separate .env file
+    # (ignored in .gitignore) or Docker secrets in Swarm mode.
+    env_file:
+      - .env
+    environment:
+      # Config overrides: uncomment and customize as needed
+    # environment:
+    #   PLAYBACK_VOLUME: "75"
+    #   COMMENTARY_TARGET_SECONDS: "20"
+    #   NEWS_ENABLED: "true"
+    #   NEWS_INTERVAL_MINUTES: "30"
+    #   MARKET_ENABLED: "true"
+    #   MARKET_TIME: "16:00"
+
+    # Volumes:
+    # - /music: your local MP3 library (read-only)
+    # - ai-dj-data: persistent SQLite cache, queue, TTS files
+    volumes:
+      # Mount your MP3 library here (read-only)
+      # On Linux: /path/to/your/music:/music:ro
+      # On macOS: /Users/you/Music:/music:ro
+      # On Docker Desktop (Windows/Mac): /mnt/d/Music:/music:ro or Docker Desktop share
+      - /path/to/your/mp3s:/music:ro
+
+      # Persistent data: SQLite DB, queue state, TTS cache, config
+      - ai-dj-data:/data
+
+      # Optional: mount a custom config file
+      # - ./config.yaml:/app/config.yaml:ro
+
+    # Audio passthrough (Linux with PulseAudio or ALSA):
+    # For PulseAudio (recommended for desktop Linux):
+    # Uncomment the following:
+    # volumes:
+    #   - /run/user/1000/pulse:/run/user/1000/pulse
+    # environment:
+    #   PULSE_SERVER: unix:/run/user/1000/pulse/native
+    #
+    # For ALSA-only systems, pass through the audio device:
+    # devices:
+    #   - /dev/snd:/dev/snd
+
+    # Logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ai-dj-data:
+    driver: local

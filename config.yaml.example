@@ -1,0 +1,46 @@
+# AI DJ Configuration
+# Copy this to config.yaml and customize. Environment variables override these values.
+# Example: COMMENTARY_TARGET_SECONDS=25 overrides the value below.
+
+playback:
+  volume: 80  # 0-100
+  music_directory:  # Path to your music folder (will prompt if not set)
+    # Leave blank to be asked at startup, or set to: /path/to/your/music
+
+commentary:
+  enabled: true
+  target_seconds: 18  # How long should the DJ blurb be?
+  cache: true  # Cache generated commentary?
+
+news:
+  enabled: true
+  interval_minutes: 30  # Fetch news every N minutes
+  target_seconds: 15  # How long should the news brief be?
+  after_every_song: false  # Play a news brief after EVERY song (great for testing)
+  feeds:  # Which RSS feeds to pull from
+    - npr
+    - ycombinator
+
+market:
+  enabled: true
+  time: "16:00"  # What time to play market wrap? (24h format, US Eastern)
+  target_seconds: 12  # How long should the market wrap be?
+  tickers:  # Which market indices/tickers to report
+    - ^GSPC  # S&P 500
+    - ^IXIC  # Nasdaq
+    - ^DJI   # Dow Jones
+    - GLD    # Gold ETF
+    - ^VIX   # VIX (Volatility)
+
+tts:
+  voice: en-US-AriaNeural  # Microsoft Edge voice (female, friendly)
+  cache: true  # Cache synthesized audio?
+
+llm:
+  primary: gemini  # Primary LLM provider
+  fallback: groq   # Fallback if primary fails/rate-limits
+  gemini_model: gemini-2.5-flash
+  groq_model: llama-3.3-70b-versatile
+
+logging:
+  verbose: false  # Print debug info?

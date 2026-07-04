@@ -1,0 +1,12 @@
+APScheduler==3.11.3
+edge-tts==7.2.8
+feedparser==6.0.12
+groq==1.5.0
+mutagen==1.48.1
+pystray==0.19.5
+python-vlc==3.0.21203
+PyYAML==6.0.3
+requests==2.34.2
+google-generativeai==0.8.4
+Pillow==10.4.0
+python-dotenv==1.0.1

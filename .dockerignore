@@ -1,0 +1,13 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+venv/
+data/
+*.mp3
+*.wav
+.env
+config.yaml
+.DS_Store
