@@ -38,7 +38,7 @@ A Windows desktop music player that uses AI to generate personalized DJ commenta
 
 ### Option 1: Pre-built Executable (Easiest)
 
-1. Download the latest `AI_DJ.zip` from [Releases](https://github.com/yourusername/ai-dj/releases)
+1. Download the latest `AI_DJ.zip` from [Releases](https://github.com/JW2WW/ai-dj/releases)
 2. Extract to any folder
 3. Double-click `AI_DJ/AI_DJ.exe`
 4. Create/select a DJ and choose your music directory
@@ -63,7 +63,7 @@ Get free API keys:
 
 **Setup:**
 ```bash
-git clone https://github.com/yourusername/ai-dj.git
+git clone https://github.com/JW2WW/ai-dj.git
 cd ai-dj
 python -m venv venv
 venv\Scripts\activate
@@ -178,10 +178,10 @@ MIT License — see [LICENSE](LICENSE)
 
 ## Author
 
-Built with ❤️ by [Your Name](https://github.com/yourusername)
+Built with ❤️ by [Your Name](https://github.com/JW2WW)
 
 ---
 
-**Have questions?** Open an [Issue](https://github.com/yourusername/ai-dj/issues) or [Discussion](https://github.com/yourusername/ai-dj/discussions)
+**Have questions?** Open an [Issue](https://github.com/JW2WW/ai-dj/issues) or [Discussion](https://github.com/JW2WW/ai-dj/discussions)
 
-**Want to support?** ⭐ Star the repo, or [sponsor](https://github.com/sponsors/yourusername) the project
+**Want to support?** ⭐ Star the repo, or [sponsor](https://github.com/sponsors/JW2WW) the project
