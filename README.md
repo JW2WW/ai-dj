@@ -38,7 +38,7 @@ A Windows desktop music player that uses AI to generate personalized DJ commenta
 
 ### Option 1: Pre-built Executable (Easiest)
 
-1. Download the latest `AI_DJ.zip` from [Releases](https://github.com/jw2ww/radio-dj-for-mp3s/releases)
+1. Download the latest `AI_DJ.zip` from [Releases](https://github.com/JW2WW/Radio-DJ-for-MP3s/releases)
 2. Extract to any folder
 3. Double-click `AI_DJ/AI_DJ.exe`
 4. Create/select a DJ and choose your music directory
@@ -63,8 +63,8 @@ Get free API keys:
 
 **Setup:**
 ```bash
-git clone https://github.com/jw2ww/radio-dj-for-mp3s.git
-cd radio-dj-for-mp3s
+git clone https://github.com/JW2WW/Radio-DJ-for-MP3s.git
+cd Radio-DJ-for-MP3s
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
@@ -186,10 +186,10 @@ MIT License — see [LICENSE](LICENSE)
 
 ## Author
 
-Built with ❤️ by [JW2WW](https://github.com/jw2ww)
+Built with ❤️ by [JW2WW](https://github.com/JW2WW)
 
 ---
 
-**Have questions?** Open an [Issue](https://github.com/jw2ww/radio-dj-for-mp3s/issues) or [Discussion](https://github.com/jw2ww/radio-dj-for-mp3s/discussions)
+**Have questions?** Open an [Issue](https://github.com/JW2WW/Radio-DJ-for-MP3s/issues) or [Discussion](https://github.com/JW2WW/Radio-DJ-for-MP3s/discussions)
 
 **Want to support?** ⭐ Star the repo, or [sponsor](https://github.com/sponsors/JW2WW) the project
