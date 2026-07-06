@@ -33,7 +33,9 @@ class EnhancedAIdjGUI:
     def __init__(self, root, dj: DJProfile | None = None, music_dir: Path | None = None):
         self.root = root
         self.dj = dj
-        self.music_dir = music_dir or Path(r"C:\Users\AI\Desktop\mp3s")
+        self.music_dir = music_dir
+        if not self.music_dir:
+            raise ValueError("music_dir is required")
         self.root.title(f"AI DJ — {dj.stage_name}" if dj else "AI DJ")
         self.root.geometry("1200x800")
         self.root.resizable(True, True)
@@ -42,13 +44,10 @@ class EnhancedAIdjGUI:
         # Create queue_manager in GUI thread (not playback thread) to avoid SQLite threading issues
         self.queue_manager = QueueManager(DB_PATH, self.music_dir)
         self.queue_manager.sync_library()
+        self.all_tracks = self.queue_manager.list_tracks()
+        self._search_results: list = []
         self.controller = PlaybackController(self.music_dir, DB_PATH, TTS_CACHE_DIR, dj=dj, queue_manager=self.queue_manager)
         self.controller.on_track_changed = self._on_track_changed
-
-        # Track list for search
-        self.all_tracks = self.queue_manager.queue_manager.conn.execute(
-            "SELECT * FROM tracks ORDER BY artist, title"
-        ).fetchall() if hasattr(self.queue_manager, 'queue_manager') else []
 
         # Setup UI
         self._setup_ui()
@@ -339,14 +338,45 @@ class EnhancedAIdjGUI:
         # Populate with history
         self._refresh_history()
 
+    def _format_duration(self, duration) -> str:
+        if not duration:
+            return "0:00"
+        return f"{int(duration // 60)}:{int(duration % 60):02d}"
+
+    def _reload_library_tracks(self):
+        """Refresh the in-memory library list after a directory change."""
+        self.queue_manager.sync_library()
+        self.all_tracks = self.queue_manager.list_tracks()
+
+    def _persist_settings(self):
+        """Write current toggle/volume settings to config.yaml."""
+        self.cfg.data["playback"]["volume"] = int(self.volume_slider.get())
+        try:
+            self.cfg.save()
+        except OSError as e:
+            if self.cfg["logging"]["verbose"]:
+                print(f"Could not save config: {e}")
+
     def _refresh_playlist(self):
-        """Refresh the playlist view with upcoming tracks."""
+        """Refresh the playlist view with upcoming tracks or search results."""
         for item in self.playlist_tree.get_children():
             self.playlist_tree.delete(item)
 
-        upcoming = self.controller.peek_queue(20)
-        for track in upcoming:
-            duration = f"{int(track.duration // 60)}:{int(track.duration % 60):02d}" if track.duration else "0:00"
+        query = self.search_var.get().strip().lower() if hasattr(self, "search_var") else ""
+        if query:
+            self._search_results = [
+                track for track in self.all_tracks
+                if query in track.artist.lower()
+                or query in track.title.lower()
+                or (track.album and query in track.album.lower())
+            ][:50]
+            tracks = self._search_results
+        else:
+            self._search_results = []
+            tracks = self.controller.peek_queue(20)
+
+        for track in tracks:
+            duration = self._format_duration(track.duration)
             self.playlist_tree.insert(
                 "", "end", values=(track.artist, track.title, duration)
             )
@@ -418,14 +448,18 @@ class EnhancedAIdjGUI:
         vol = int(float(value))
         self.volume_label.config(text=f"{vol}%")
         self.controller.set_volume(vol)
+        self.cfg.data["playback"]["volume"] = vol
+        self._persist_settings()
 
     def _on_commentary_toggle(self):
         """Toggle commentary on/off."""
         self.cfg.data["commentary"]["enabled"] = self.commentary_var.get()
+        self._persist_settings()
 
     def _on_news_toggle(self):
         """Toggle news on/off."""
         self.cfg.data["news"]["enabled"] = self.news_var.get()
+        self._persist_settings()
 
     def _on_news_every_song_toggle(self):
         """Toggle 'news after every song' on/off."""
@@ -438,17 +472,16 @@ class EnhancedAIdjGUI:
         self.status.config(
             text="News after every song: ON" if enabled else "News after every song: OFF"
         )
+        self._persist_settings()
 
     def _on_market_toggle(self):
         """Toggle market on/off."""
         self.cfg.data["market"]["enabled"] = self.market_var.get()
+        self._persist_settings()
 
     def _on_search_change(self, *args):
         """Filter playlist by search term."""
-        query = self.search_var.get().lower()
-        if query:
-            # TODO: Implement search filtering
-            pass
+        self._refresh_playlist()
 
     def _load_dj_image(self):
         """Load and display the selected DJ's image (same size as DJ selector)."""
@@ -528,16 +561,18 @@ class EnhancedAIdjGUI:
         if not item:
             return
 
-        # Get track from current position (rough approximation)
-        upcoming = self.controller.peek_queue(20)
-        if upcoming:
-            track = upcoming[self.playlist_tree.index(item[0])]
-            menu = tk.Menu(self.root, tearoff=False)
-            menu.add_command(
-                label="Remove from Queue",
-                command=lambda: self._remove_from_queue(track),
-            )
-            menu.post(event.x_root, event.y_root)
+        index = self.playlist_tree.index(item[0])
+        query = self.search_var.get().strip()
+        tracks = self._search_results if query else self.controller.peek_queue(20)
+        if index < len(tracks):
+            track = tracks[index]
+            if not query:
+                menu = tk.Menu(self.root, tearoff=False)
+                menu.add_command(
+                    label="Remove from Queue",
+                    command=lambda: self._remove_from_queue(track),
+                )
+                menu.post(event.x_root, event.y_root)
 
     def _remove_from_queue(self, track):
         """Remove a track from the upcoming queue."""
@@ -577,9 +612,8 @@ class EnhancedAIdjGUI:
         new_dir = select_music_directory()
         if new_dir:
             self.music_dir = new_dir
-            # Reload queue manager with new directory
             self.queue_manager = QueueManager(DB_PATH, self.music_dir)
-            self.queue_manager.sync_library()
+            self._reload_library_tracks()
             self.status.config(text=f"Music directory changed to {new_dir}")
             self._refresh_playlist()
             self._refresh_history()

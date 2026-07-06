@@ -5,6 +5,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
 
+from sqlite_db import open_db
+
 # TTS voice mapping: (gender, generation, orientation) -> (voice_name, tone, speed)
 # Tone: "enthusiastic", "calm", "energetic", "smooth", "professional"
 # Speed: 0.8 to 1.5 (0.8 = slower, 1.5 = faster)
@@ -117,10 +119,11 @@ class DJManager:
         self.dj_images_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize database
-        self.conn = sqlite3.connect(db_path)
-        self.conn.executescript(DJ_DB_SCHEMA)
-        self._migrate()
-        self.conn.commit()
+        self.conn, self._lock = open_db(db_path, check_same_thread=False)
+        with self._lock:
+            self.conn.executescript(DJ_DB_SCHEMA)
+            self._migrate()
+            self.conn.commit()
 
     def _migrate(self) -> None:
         """Add newer columns to an existing djs table if they're missing."""
@@ -135,76 +138,78 @@ class DJManager:
         if not profile.voice:
             profile.auto_assign_voice()
 
-        self.conn.execute(
-            """INSERT OR REPLACE INTO djs
-               (id, stage_name, station_name, gender, sexual_orientation,
-                music_genre, generation, image_path, voice, tone, speed,
-                news_sources, news_speed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                profile.id,
-                profile.stage_name,
-                profile.station_name,
-                profile.gender,
-                profile.sexual_orientation,
-                profile.music_genre,
-                profile.generation,
-                profile.image_path,
-                profile.voice,
-                profile.tone,
-                profile.speed,
-                profile.news_sources,
-                profile.news_speed,
-            ),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT OR REPLACE INTO djs
+                   (id, stage_name, station_name, gender, sexual_orientation,
+                    music_genre, generation, image_path, voice, tone, speed,
+                    news_sources, news_speed)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    profile.id,
+                    profile.stage_name,
+                    profile.station_name,
+                    profile.gender,
+                    profile.sexual_orientation,
+                    profile.music_genre,
+                    profile.generation,
+                    profile.image_path,
+                    profile.voice,
+                    profile.tone,
+                    profile.speed,
+                    profile.news_sources,
+                    profile.news_speed,
+                ),
+            )
+            self.conn.commit()
 
     def get_dj(self, dj_id: str) -> DJProfile | None:
         """Load a DJ profile by ID."""
-        cursor = self.conn.execute(
-            "SELECT id, stage_name, station_name, gender, sexual_orientation, "
-            "music_genre, generation, image_path, voice, tone, speed, "
-            "news_sources, news_speed FROM djs WHERE id = ?",
-            (dj_id,),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return None
+        with self._lock:
+            cursor = self.conn.execute(
+                "SELECT id, stage_name, station_name, gender, sexual_orientation, "
+                "music_genre, generation, image_path, voice, tone, speed, "
+                "news_sources, news_speed FROM djs WHERE id = ?",
+                (dj_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
 
-        cols = [desc[0] for desc in cursor.description]
-        data = dict(zip(cols, row))
-        return DJProfile(**data)
+            cols = [desc[0] for desc in cursor.description]
+            data = dict(zip(cols, row))
+            return DJProfile(**data)
 
     def list_djs(self) -> list[DJProfile]:
         """List all DJ profiles. Auto-create defaults if database is empty."""
-        cursor = self.conn.execute(
-            "SELECT id, stage_name, station_name, gender, sexual_orientation, "
-            "music_genre, generation, image_path, voice, tone, speed, "
-            "news_sources, news_speed FROM djs ORDER BY stage_name"
-        )
-        rows = cursor.fetchall()
-
-        # If no DJs exist, create the defaults
-        if not rows:
-            for dj in DEFAULT_DJS:
-                # Only auto-assign if voice not already set
-                if not dj.voice:
-                    dj.auto_assign_voice()
-                self.create_dj(dj)
-            # Re-query after creating defaults
+        with self._lock:
             cursor = self.conn.execute(
                 "SELECT id, stage_name, station_name, gender, sexual_orientation, "
-                "music_genre, generation, image_path, voice, tone, speed FROM djs ORDER BY stage_name"
+                "music_genre, generation, image_path, voice, tone, speed, "
+                "news_sources, news_speed FROM djs ORDER BY stage_name"
             )
             rows = cursor.fetchall()
 
-        cols = [desc[0] for desc in cursor.description]
-        return [DJProfile(**dict(zip(cols, row))) for row in rows]
+            if not rows:
+                for dj in DEFAULT_DJS:
+                    if not dj.voice:
+                        dj.auto_assign_voice()
+                    self.create_dj(dj)
+                cursor = self.conn.execute(
+                    "SELECT id, stage_name, station_name, gender, sexual_orientation, "
+                    "music_genre, generation, image_path, voice, tone, speed, "
+                    "news_sources, news_speed FROM djs ORDER BY stage_name"
+                )
+                rows = cursor.fetchall()
+
+            cols = [desc[0] for desc in cursor.description]
+            return [DJProfile(**dict(zip(cols, row))) for row in rows]
 
     def delete_dj(self, dj_id: str) -> None:
         """Delete a DJ profile."""
-        self.conn.execute("DELETE FROM djs WHERE id = ?", (dj_id,))
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute("DELETE FROM djs WHERE id = ?", (dj_id,))
+            self.conn.commit()
 
 
 # Default demo DJs to get started

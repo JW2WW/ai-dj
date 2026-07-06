@@ -1,7 +1,7 @@
 """Fetch news headlines from RSS feeds and condense via LLM."""
 import feedparser
 
-from llm_client import LLMClient
+from llm_client import get_llm_client
 
 # Free, no-auth RSS feeds. These change occasionally as sites update feeds.
 # Feeds update multiple times per day. Keys are the user-facing source names.
@@ -55,7 +55,7 @@ def fetch_headlines(num_headlines: int = 5, feeds: dict | None = None) -> list[d
 
     headlines = []
     # Some outlets (e.g. BBC) reject the default feedparser user-agent.
-    agent = "AI-DJ/1.0 (+https://github.com/anthropics/ai-dj)"
+    agent = "AI-DJ/1.0 (+https://github.com/JW2WW/Radio-DJ-for-MP3s)"
     for source_name, feed_url in feeds.items():
         try:
             feed = feedparser.parse(feed_url, agent=agent)
@@ -71,13 +71,12 @@ def fetch_headlines(num_headlines: int = 5, feeds: dict | None = None) -> list[d
     return headlines[:num_headlines]
 
 
-def condense_news(headlines: list[dict], llm: LLMClient | None = None,
-                  target_seconds: int = 15) -> str:
+def condense_news(headlines: list[dict], llm=None, target_seconds: int = 15) -> str:
     """Turn a list of headlines into a short spoken news summary."""
     if not headlines:
         return ""
 
-    llm = llm or LLMClient()
+    llm = llm or get_llm_client()
     headlines_text = "\n".join(
         f"- {h['title']} (from {h['source']})" for h in headlines
     )

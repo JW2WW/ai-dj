@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Free-tier friendly defaults; override via env if you like.
+# Free-tier friendly defaults; override via env or config.yaml.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
@@ -20,13 +20,20 @@ class LLMError(Exception):
 
 
 class LLMClient:
-    def __init__(self, primary: str = "gemini", fallback: str | None = "groq"):
+    def __init__(
+        self,
+        primary: str = "gemini",
+        fallback: str | None = "groq",
+        gemini_model: str | None = None,
+        groq_model: str | None = None,
+    ):
         self.primary = primary
         self.fallback = fallback
-        self._gemini = None  # lazily constructed so a missing key for the
-        self._groq = None    # unused provider doesn't block startup.
+        self.gemini_model = gemini_model or GEMINI_MODEL
+        self.groq_model = groq_model or GROQ_MODEL
+        self._gemini = None
+        self._groq = None
 
-    # --- provider handles (lazy) ---------------------------------------
     def _gemini_client(self):
         if self._gemini is None:
             from google import genai
@@ -47,20 +54,15 @@ class LLMClient:
             self._groq = Groq(api_key=key)
         return self._groq
 
-    # --- per-provider calls --------------------------------------------
     def _call_gemini(self, prompt: str, max_tokens: int) -> str:
         from google.genai import types
 
         client = self._gemini_client()
         resp = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=self.gemini_model,
             contents=prompt,
             config=types.GenerateContentConfig(
                 max_output_tokens=max_tokens,
-                # gemini-2.5-flash is a reasoning model; without this, its
-                # internal "thinking" tokens consume the whole output budget
-                # and short blurbs come back truncated. DJ commentary needs
-                # no reasoning, so switch thinking off.
                 thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
@@ -72,7 +74,7 @@ class LLMClient:
     def _call_groq(self, prompt: str, max_tokens: int) -> str:
         client = self._groq_client()
         resp = client.chat.completions.create(
-            model=GROQ_MODEL,
+            model=self.groq_model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
         )
@@ -88,20 +90,33 @@ class LLMClient:
             return self._call_groq(prompt, max_tokens)
         raise LLMError(f"Unknown provider: {provider}")
 
-    # --- public API ----------------------------------------------------
     def generate(self, prompt: str, max_tokens: int = 150) -> str:
         providers = [self.primary] + ([self.fallback] if self.fallback else [])
         errors: list[str] = []
         for provider in providers:
             try:
                 return self._call(provider, prompt, max_tokens)
-            except Exception as e:  # rate limit, network, empty, missing key
+            except Exception as e:
                 errors.append(f"{provider}: {e}")
         raise LLMError("All providers failed -> " + " | ".join(errors))
 
 
+def get_llm_client() -> LLMClient:
+    """Build an LLM client from config.yaml (with env overrides)."""
+    from config import get_config
+
+    cfg = get_config()
+    llm_cfg = cfg["llm"]
+    return LLMClient(
+        primary=llm_cfg.get("primary", "gemini"),
+        fallback=llm_cfg.get("fallback", "groq"),
+        gemini_model=llm_cfg.get("gemini_model"),
+        groq_model=llm_cfg.get("groq_model"),
+    )
+
+
 if __name__ == "__main__":
-    client = LLMClient()
+    client = get_llm_client()
     out = client.generate(
         "In one punchy sentence, introduce the song 'The Gambler' by Kenny "
         "Rogers as a radio DJ would.",
