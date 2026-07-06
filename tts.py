@@ -7,6 +7,8 @@ from pathlib import Path
 
 import edge_tts
 
+from sqlite_db import open_db
+
 TTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS tts_cache (
     text_hash TEXT PRIMARY KEY,
@@ -63,13 +65,10 @@ class TTSGenerator:
         self.voice = voice or VOICE
         self.rate = rate
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        # check_same_thread=False so background pre-render threads can use the
-        # cache; a lock serializes access since sqlite connections aren't
-        # safe for concurrent use.
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._db_lock = threading.Lock()
-        self.conn.executescript(TTS_SCHEMA)
-        self.conn.commit()
+        self.conn, self._db_lock = open_db(db_path, check_same_thread=False)
+        with self._db_lock:
+            self.conn.executescript(TTS_SCHEMA)
+            self.conn.commit()
 
     def _cached_path(self, text_hash: str) -> Path | None:
         """Return cached audio path if it exists and the file is present."""

@@ -188,6 +188,7 @@ class PlaybackController:
             news_target_seconds=self.cfg["news"]["target_seconds"],
             market_target_seconds=self.cfg["market"]["target_seconds"],
             news_feeds=news_feeds,
+            market_tickers=self.cfg["market"].get("tickers"),
         )
         scheduler.start()
 

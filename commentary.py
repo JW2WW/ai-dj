@@ -12,8 +12,9 @@ from pathlib import Path
 
 import requests
 
-from llm_client import LLMClient
+from llm_client import get_llm_client
 from playlist import Track
+from sqlite_db import open_db
 
 # MusicBrainz requires a descriptive User-Agent; Wikipedia appreciates one too.
 USER_AGENT = "AI-DJ/0.1 (personal radio project)"
@@ -225,16 +226,12 @@ def fetch_artist_source(artist: str, title: str | None = None) -> str | None:
 
 
 class CommentaryGenerator:
-    def __init__(self, db_path: Path, llm: LLMClient | None = None,
-                 target_seconds: int = 18):
-        # check_same_thread=False + lock so background pre-render threads can
-        # reuse the commentary cache safely.
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self._db_lock = threading.Lock()
-        self.conn.executescript(CACHE_SCHEMA)
-        self.conn.commit()
-        self.llm = llm or LLMClient()
+    def __init__(self, db_path: Path, llm=None, target_seconds: int = 18):
+        self.conn, self._db_lock = open_db(db_path, check_same_thread=False)
+        with self._db_lock:
+            self.conn.executescript(CACHE_SCHEMA)
+            self.conn.commit()
+        self.llm = llm or get_llm_client()
         self.target_seconds = target_seconds
 
     def _cached(self, artist: str) -> str | None:

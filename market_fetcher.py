@@ -3,7 +3,7 @@ from datetime import datetime
 
 import yfinance as yf
 
-from llm_client import LLMClient
+from llm_client import get_llm_client
 
 # Major US indices + some popular tickers (customize as desired)
 DEFAULT_TICKERS = ["^GSPC", "^IXIC", "^DJI", "GLD", "^VIX"]
@@ -37,13 +37,12 @@ def fetch_market_data(tickers: list[str] | None = None) -> str:
     return "\n".join(lines) if lines else ""
 
 
-def condense_market(market_data: str, llm: LLMClient | None = None,
-                    target_seconds: int = 12) -> str:
+def condense_market(market_data: str, llm=None, target_seconds: int = 12) -> str:
     """Turn market data into a short radio-style market wrap."""
     if not market_data:
         return ""
 
-    llm = llm or LLMClient()
+    llm = llm or get_llm_client()
     word_budget = int(target_seconds * 2.3)
     prompt = (
         f"You are an upbeat financial news anchor on a radio station. "

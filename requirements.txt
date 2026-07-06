@@ -10,3 +10,5 @@ requests==2.34.2
 google-generativeai==0.8.4
 Pillow==10.4.0
 python-dotenv==1.0.1
+yfinance==0.2.61
+pytest==8.3.5

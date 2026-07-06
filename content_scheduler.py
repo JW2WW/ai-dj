@@ -16,12 +16,14 @@ class ContentScheduler:
                  market_time: str | None = "16:00",
                  news_target_seconds: int = 15,
                  market_target_seconds: int = 12,
-                 news_feeds: dict | None = None):
+                 news_feeds: dict | None = None,
+                 market_tickers: list[str] | None = None):
         self.scheduler = BackgroundScheduler(daemon=True)
-        self.pending = Queue()  # thread-safe queue of (content_type, text) tuples
+        self.pending = Queue()
         self.news_target_seconds = news_target_seconds
         self.market_target_seconds = market_target_seconds
-        self.news_feeds = news_feeds  # None -> fetcher's DEFAULT_FEEDS
+        self.news_feeds = news_feeds
+        self.market_tickers = market_tickers
 
         # Schedule news to fetch every N minutes (if enabled)
         if news_interval_minutes:
@@ -58,7 +60,7 @@ class ContentScheduler:
 
     def _fetch_and_queue_market(self) -> None:
         try:
-            data = fetch_market_data()
+            data = fetch_market_data(self.market_tickers)
             if data:
                 wrap = condense_market(data, target_seconds=self.market_target_seconds)
                 if wrap:

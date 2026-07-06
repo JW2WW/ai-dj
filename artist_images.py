@@ -34,7 +34,7 @@ def fetch_wikipedia_artist_image(artist_name: str, cache_dir: Path | None = None
     try:
         search_url = "https://en.wikipedia.org/w/api.php"
         headers = {
-            "User-Agent": "AI-DJ/1.0 (Music Player; +https://github.com/anthropics/ai-dj)"
+            "User-Agent": "AI-DJ/1.0 (Music Player; +https://github.com/jw2ww/radio-dj-for-mp3s)"
         }
 
         # Try search patterns in order: more specific first, fallback to generic

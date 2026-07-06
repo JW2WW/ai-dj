@@ -18,6 +18,7 @@ hidden_imports = [
     'vlc',
     'PIL',
     'PIL.ImageTk',
+    'yfinance',
 ]
 
 a = Analysis(
