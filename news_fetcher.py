@@ -55,7 +55,7 @@ def fetch_headlines(num_headlines: int = 5, feeds: dict | None = None) -> list[d
 
     headlines = []
     # Some outlets (e.g. BBC) reject the default feedparser user-agent.
-    agent = "AI-DJ/1.0 (+https://github.com/jw2ww/radio-dj-for-mp3s)"
+    agent = "AI-DJ/1.0 (+https://github.com/JW2WW/Radio-DJ-for-MP3s)"
     for source_name, feed_url in feeds.items():
         try:
             feed = feedparser.parse(feed_url, agent=agent)
