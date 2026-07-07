@@ -78,7 +78,7 @@ class Player:
 
     def play_blocking(self, track: Track) -> None:
         """Play a track, blocking until done."""
-        self._play_file(track.path)
+        self.play(track.path, blocking=True)
 
     def play_tts_then_track(self, tts_path: Path, track: Track) -> None:
         """Play TTS commentary, then the song."""

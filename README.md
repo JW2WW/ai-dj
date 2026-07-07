@@ -21,7 +21,8 @@ A Windows desktop music player that uses AI to generate personalized DJ commenta
 - **Commentary**: Per-artist trivia + song announcements via LLM (Gemini/Groq)
 - **News Briefs**: Configurable RSS feeds, synthesized to speech
 - **Market Updates**: Stock ticker summaries at configured times
-- **Pre-rendering**: News/commentary synthesized during playback → no dead air
+- **Time & Weather**: Auto-detected location, free Open-Meteo API, announced between songs
+- **Pre-rendering**: News/market/weather synthesized during playback → no dead air
 
 🔧 **Advanced Controls**
 - Content toggle switches (Commentary/News/Markets on/off)
@@ -103,13 +104,15 @@ queue_manager.py          → SQLite queue with ratings, shuffle logic
 dj_profile.py             → DJ personas, voice mapping
 commentary.py             → LLM-powered artist trivia with caching
 news_fetcher.py           → RSS feed fetching + LLM news condensing
-tts.py                    → Microsoft Edge TTS with caching
+weather.py                → Free Open-Meteo weather + IP geolocation
+market_fetcher.py         → yfinance market data
+tts.py                    → Microsoft Edge TTS with caching + stale cleanup
 player.py                 → VLC media player wrapper
 artist_images.py          → Album art extraction + Wikipedia fallback
 dj_manager_ui.py          → DJ creation/editing UI
 dj_selector.py            → Initial DJ selection screen
 music_directory.py        → Directory picker
-paths.py                  → Cross-platform path resolution (dev + exe)
+paths.py                  → Cross-platform path resolution (dev + exe) + resolve_dj_image()
 sqlite_db.py              → Shared SQLite WAL connections + locking
 ```
 

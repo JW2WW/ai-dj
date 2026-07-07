@@ -5,9 +5,13 @@ from dj_selector import select_dj
 from gui_enhanced import EnhancedAIdjGUI
 from music_directory import select_music_directory
 from paths import DB_PATH, TTS_CACHE_DIR
+from log import setup_logging
+from config import get_config
 
 
 def main():
+    cfg = get_config()
+    setup_logging(verbose=cfg["logging"]["verbose"])
     """Launch DJ selector, then music directory selector, then enhanced main GUI."""
     # Show DJ selector first
     print("Launching DJ Selector...")

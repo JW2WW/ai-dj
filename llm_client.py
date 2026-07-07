@@ -8,7 +8,9 @@ import os
 
 from dotenv import load_dotenv
 
-load_dotenv()
+from paths import EXE_DIR
+
+load_dotenv(EXE_DIR / ".env")
 
 # Free-tier friendly defaults; override via env or config.yaml.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")

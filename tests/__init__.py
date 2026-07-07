@@ -1,1 +1,1 @@
-"""Tests for AI DJ core modules."""
+# Tests package

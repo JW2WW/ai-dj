@@ -189,8 +189,6 @@ class QueueManager:
                 if track is not None:
                     return track
 
-    skip = advance
-
     def remove_from_queue(self, track_id: int) -> None:
         """Remove a track from the upcoming queue (doesn't delete it, just dequeues it)."""
         with self._lock:

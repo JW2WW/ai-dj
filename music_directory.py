@@ -5,8 +5,6 @@ from tkinter import filedialog, messagebox, ttk
 
 from config import get_config
 
-CONFIG_FILE = Path(__file__).parent / "config.yaml"
-
 
 def get_music_directory() -> Path | None:
     """Show directory selector if not configured, otherwise return configured path."""

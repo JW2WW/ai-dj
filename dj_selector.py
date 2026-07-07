@@ -1,19 +1,18 @@
 """DJ selector: initial screen for choosing which DJ to be for this session."""
+import logging
 import tkinter as tk
-from pathlib import Path
 from tkinter import ttk
 from PIL import Image, ImageTk
 
 from dj_profile import DJManager
-from paths import DB_PATH, DJ_IMAGES_DIR
-
-MUSIC_DIR = Path(r"C:\Users\AI\Desktop\mp3s")
+from paths import DB_PATH, DJ_IMAGES_DIR, resolve_dj_image
 
 # Default DJ images (placeholder colors if no image exists)
 DJ_COLORS = {
-    "morning_mike": "#4A90E2",   # Blue
-    "night_nina": "#E24A90",     # Pink
-    "sunny_sam": "#90E24A",      # Green
+    "morning_mike": "#4A90E2",
+    "night_nina": "#E24A90",
+    "sunny_sam": "#90E24A",
+    "late_night_leo": "#7B68EE",
 }
 
 
@@ -92,9 +91,8 @@ class DJSelectorWindow:
         # DJ image if uploaded, otherwise initial letter as placeholder
         photo = None
         if dj.image_path:
-            # image_path is stored as filename; reconstruct full path
-            image_file = DJ_IMAGES_DIR / dj.image_path if not Path(dj.image_path).is_absolute() else Path(dj.image_path)
-            if image_file.exists():
+            image_file = resolve_dj_image(dj.image_path)
+            if image_file and image_file.exists():
                 try:
                     img = Image.open(image_file)
                     # Preserve full image (no cropping); scale to a consistent box
@@ -102,8 +100,8 @@ class DJSelectorWindow:
                     img.thumbnail((220, 260), Image.Resampling.LANCZOS)
                     photo = ImageTk.PhotoImage(img)
                     self._photo_refs.append(photo)  # Prevent garbage collection
-                except Exception:
-                    photo = None
+                except Exception as e:
+                    logging.error(f"Failed to load DJ image {dj.image_path}: {e}")
             else:
                 photo = None
         else:

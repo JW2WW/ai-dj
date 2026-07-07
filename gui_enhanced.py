@@ -1,11 +1,17 @@
 """Enhanced GUI: Playlist view, search, history, inline toggles, keyboard shortcuts, music blending, DJ voices."""
+import logging
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk
+from tkinter import ttk, simpledialog
 from PIL import Image, ImageDraw, ImageTk
-import pystray
 from io import BytesIO
+
+try:
+    import pystray
+    HAS_TRAY = True
+except ImportError:
+    HAS_TRAY = False
 
 from config import get_config
 from dj_profile import DJProfile
@@ -14,7 +20,45 @@ from playback_controller import PlaybackController
 from queue_manager import QueueManager
 from artist_images import get_artist_image
 from dj_manager_ui import launch_dj_manager
-from paths import DB_PATH, TTS_CACHE_DIR, DJ_IMAGES_DIR
+from paths import DB_PATH, TTS_CACHE_DIR, resolve_dj_image
+
+
+class SettingsDialog(simpledialog.Dialog):
+    def __init__(self, parent, config_manager):
+        self.config_manager = config_manager
+        self.config_data = self.config_manager.data # Direct access to config data
+        super().__init__(parent, "Settings")
+
+    def body(self, master):
+        self.resizable(False, False)
+        # Weather Settings
+        weather_frame = ttk.LabelFrame(master, text="Weather Settings")
+        weather_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+
+        ttk.Label(weather_frame, text="City:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.city_var = tk.StringVar(value=self.config_data["weather"].get("city", ""))
+        self.city_entry = ttk.Entry(weather_frame, textvariable=self.city_var, width=40)
+        self.city_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        ttk.Label(weather_frame, text="Zip Code:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.zip_code_var = tk.StringVar(value=self.config_data["weather"].get("zip_code", ""))
+        self.zip_code_entry = ttk.Entry(weather_frame, textvariable=self.zip_code_var, width=40)
+        self.zip_code_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+        return weather_frame # initial focus
+
+    def apply(self):
+        new_city = self.city_var.get().strip()
+        new_zip_code = self.zip_code_var.get().strip()
+
+        self.config_data["weather"]["city"] = new_city if new_city else None
+        self.config_data["weather"]["zip_code"] = new_zip_code if new_zip_code else None
+
+        try:
+            self.config_manager.save()
+            logging.info("Settings saved successfully.")
+        except OSError as e:
+            logging.error(f"Failed to save settings: {e}")
 
 
 def create_icon():
@@ -64,8 +108,9 @@ class EnhancedAIdjGUI:
         # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # Setup system tray
-        self._setup_tray()
+        # Setup system tray (optional — pystray may not be bundled)
+        if HAS_TRAY:
+            self._setup_tray()
 
     def _setup_ui(self):
         """Build the enhanced main window UI."""
@@ -161,6 +206,10 @@ class EnhancedAIdjGUI:
             side=tk.LEFT, padx=5
         )
 
+        ttk.Button(controls_frame, text="⚙️ Settings", command=self._on_settings_click).pack(
+            side=tk.LEFT, padx=5
+        )
+
         # Volume control
         vol_frame = ttk.Frame(controls_frame)
         vol_frame.pack(side=tk.LEFT, padx=20)
@@ -213,6 +262,14 @@ class EnhancedAIdjGUI:
             text="Market",
             variable=self.market_var,
             command=self._on_market_toggle,
+        ).pack(side=tk.LEFT, padx=5)
+
+        self.weather_var = tk.BooleanVar(value=self.cfg["weather"]["enabled"])
+        ttk.Checkbutton(
+            toggles_frame,
+            text="Weather",
+            variable=self.weather_var,
+            command=self._on_weather_toggle,
         ).pack(side=tk.LEFT, padx=5)
 
         # Search bar
@@ -479,6 +536,11 @@ class EnhancedAIdjGUI:
         self.cfg.data["market"]["enabled"] = self.market_var.get()
         self._persist_settings()
 
+    def _on_weather_toggle(self):
+        """Toggle weather on/off."""
+        self.cfg.data["weather"]["enabled"] = self.weather_var.get()
+        self._persist_settings()
+
     def _on_search_change(self, *args):
         """Filter playlist by search term."""
         self._refresh_playlist()
@@ -489,9 +551,9 @@ class EnhancedAIdjGUI:
             if not self.dj or not self.dj.image_path:
                 return
 
-            # image_path is stored as filename; reconstruct full path
-            image_file = DJ_IMAGES_DIR / self.dj.image_path if not Path(self.dj.image_path).is_absolute() else Path(self.dj.image_path)
-            if image_file.exists():
+            # image_path is stored as filename; resolve via user uploads then bundled defaults
+            image_file = resolve_dj_image(self.dj.image_path)
+            if image_file and image_file.exists():
                 img = Image.open(image_file)
                 # Use same sizing as DJ selector: 220x260 with aspect ratio preserved
                 img.thumbnail((220, 260), Image.Resampling.LANCZOS)
@@ -607,6 +669,10 @@ class EnhancedAIdjGUI:
         """Open the DJ manager window."""
         launch_dj_manager(parent=self.root)
 
+    def _on_settings_click(self):
+        """Open the settings dialog."""
+        SettingsDialog(self.root, self.cfg)
+
     def _on_change_directory_click(self):
         """Prompt for a new music directory and reload the library immediately."""
         new_dir = select_music_directory()
@@ -619,8 +685,11 @@ class EnhancedAIdjGUI:
             self._refresh_history()
 
     def _on_close(self):
-        """Minimize to tray instead of closing."""
-        self.root.withdraw()
+        """Minimize to tray instead of closing, if tray available."""
+        if HAS_TRAY:
+            self.root.withdraw()
+        else:
+            self._on_tray_exit(None, None)
 
     def _setup_tray(self):
         """Create system tray icon and menu."""
@@ -650,7 +719,8 @@ class EnhancedAIdjGUI:
     def _on_tray_exit(self, icon, item):
         """Exit the application."""
         self.controller.stop()
-        icon.stop()
+        if icon:
+            icon.stop()
         self.root.quit()
 
 

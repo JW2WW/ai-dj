@@ -1,4 +1,5 @@
 """Fetch market data from yfinance and condense via LLM."""
+import logging
 from datetime import datetime
 
 import yfinance as yf

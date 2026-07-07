@@ -1,4 +1,5 @@
 """Schedule news/market content to be injected into playback on a cadence."""
+import logging
 import threading
 from queue import Queue
 
@@ -44,15 +45,18 @@ class ContentScheduler:
                 id="market_job",
             )
 
+
     def _fetch_and_queue_news(self) -> None:
         try:
             headlines = fetch_headlines(num_headlines=5, feeds=self.news_feeds)
+            logging.debug(f"[ContentScheduler] Fetched {len(headlines)} headlines")
             if headlines:
                 summary = condense_news(headlines, target_seconds=self.news_target_seconds)
                 if summary:
                     self.pending.put(("news", summary))
-        except Exception:
-            pass
+                    logging.info(f"[ContentScheduler] Queued news summary ({len(summary.split())} words)")
+        except Exception as e:
+            logging.exception("[ContentScheduler] Error fetching news: %s", e)
 
     def fetch_news_now(self) -> None:
         """Force an immediate news fetch and queue (used for 'after every song')."""
@@ -86,5 +90,5 @@ class ContentScheduler:
         """Get the next pending content (content_type, text), or None."""
         try:
             return self.pending.get_nowait()
-        except:
+        except Exception:
             return None

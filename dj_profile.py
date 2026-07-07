@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from sqlite_db import open_db
+from voices import AVAILABLE_VOICES, normalize_voice
 
 # TTS voice mapping: (gender, generation, orientation) -> (voice_name, tone, speed)
 # Tone: "enthusiastic", "calm", "energetic", "smooth", "professional"
@@ -31,27 +32,15 @@ VOICE_PROFILES = {
     ("female", "gen_z", "gay"): ("AriaNeural", "enthusiastic", 1.25),
     ("female", "alpha", "straight"): ("AriaNeural", "enthusiastic", 1.3),
     ("female", "alpha", "gay"): ("AriaNeural", "energetic", 1.3),
-    ("nonbinary", "boomer", "any"): ("AmberNeural", "calm", 0.95),
-    ("nonbinary", "gen_x", "any"): ("AmberNeural", "smooth", 1.0),
-    ("nonbinary", "millennial", "any"): ("AmberNeural", "energetic", 1.1),
-    ("nonbinary", "gen_z", "any"): ("AmberNeural", "enthusiastic", 1.2),
-    ("nonbinary", "alpha", "any"): ("AmberNeural", "enthusiastic", 1.3),
+    ("nonbinary", "boomer", "any"): ("MichelleNeural", "calm", 0.95),
+    ("nonbinary", "gen_x", "any"): ("MichelleNeural", "smooth", 1.0),
+    ("nonbinary", "millennial", "any"): ("MichelleNeural", "energetic", 1.1),
+    ("nonbinary", "gen_z", "any"): ("EricNeural", "enthusiastic", 1.2),
+    ("nonbinary", "alpha", "any"): ("EricNeural", "enthusiastic", 1.3),
 }
 
-# Available Edge TTS voices
-AVAILABLE_VOICES = [
-    "en-US-AriaNeural",      # Female, neutral
-    "en-US-AmberNeural",     # Female, warm
-    "en-US-AshleyNeural",    # Female, soft
-    "en-US-CoraNeural",      # Female, bright
-    "en-US-ElizabethNeural", # Female, calm
-    "en-US-JennyNeural",     # Female, natural
-    "en-US-MonicaNeural",    # Female, professional
-    "en-US-GuyNeural",       # Male, neutral
-    "en-US-ArthurNeural",    # Male, calm
-    "en-US-BrianNeural",     # Male, friendly
-    "en-US-JacobNeural",     # Male, young
-]
+# Re-export for UI modules that import from dj_profile.
+# See voices.py for the canonical list and retired-voice aliases.
 
 DJ_DB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS djs (
@@ -68,6 +57,7 @@ CREATE TABLE IF NOT EXISTS djs (
     speed REAL,
     news_sources TEXT,
     news_speed REAL,
+    weather_speed REAL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -86,9 +76,10 @@ class DJProfile:
     image_path: Optional[str] = None  # Path to DJ's profile image
     voice: Optional[str] = None  # TTS voice (e.g., "en-US-GuyNeural")
     tone: Optional[str] = None  # Speech tone (e.g., "energetic")
-    speed: Optional[float] = None  # Speech speed (0.8-1.5)
+    speed: Optional[float] = 1.0  # Speech speed (0.8-1.5)
     news_sources: Optional[str] = None  # Comma-separated source names (e.g. "CNN,BBC")
     news_speed: Optional[float] = 1.0  # Speech speed for news reads (default: calmer 1.0)
+    weather_speed: Optional[float] = 1.0  # Speech speed for weather reads
 
     def auto_assign_voice(self) -> None:
         """Auto-assign voice, tone, and speed based on demographics."""
@@ -132,6 +123,23 @@ class DJManager:
             self.conn.execute("ALTER TABLE djs ADD COLUMN news_sources TEXT")
         if "news_speed" not in existing:
             self.conn.execute("ALTER TABLE djs ADD COLUMN news_speed REAL")
+        if "weather_speed" not in existing:
+            self.conn.execute("ALTER TABLE djs ADD COLUMN weather_speed REAL")
+        self._migrate_voices()
+
+    def _migrate_voices(self) -> None:
+        """Upgrade stored DJ voices that Microsoft has retired."""
+        rows = self.conn.execute("SELECT id, voice FROM djs").fetchall()
+        for row in rows:
+            old_voice = row["voice"]
+            if not old_voice:
+                continue
+            new_voice = normalize_voice(old_voice)
+            if new_voice != old_voice:
+                self.conn.execute(
+                    "UPDATE djs SET voice = ? WHERE id = ?",
+                    (new_voice, row["id"]),
+                )
 
     def create_dj(self, profile: DJProfile) -> None:
         """Create and save a new DJ profile."""
@@ -143,8 +151,8 @@ class DJManager:
                 """INSERT OR REPLACE INTO djs
                    (id, stage_name, station_name, gender, sexual_orientation,
                     music_genre, generation, image_path, voice, tone, speed,
-                    news_sources, news_speed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    news_sources, news_speed, weather_speed)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     profile.id,
                     profile.stage_name,
@@ -159,6 +167,7 @@ class DJManager:
                     profile.speed,
                     profile.news_sources,
                     profile.news_speed,
+                    profile.weather_speed,
                 ),
             )
             self.conn.commit()
@@ -169,7 +178,7 @@ class DJManager:
             cursor = self.conn.execute(
                 "SELECT id, stage_name, station_name, gender, sexual_orientation, "
                 "music_genre, generation, image_path, voice, tone, speed, "
-                "news_sources, news_speed FROM djs WHERE id = ?",
+                "news_sources, news_speed, weather_speed FROM djs WHERE id = ?",
                 (dj_id,),
             )
             row = cursor.fetchone()
@@ -178,6 +187,8 @@ class DJManager:
 
             cols = [desc[0] for desc in cursor.description]
             data = dict(zip(cols, row))
+            if data.get("voice"):
+                data["voice"] = normalize_voice(data["voice"])
             return DJProfile(**data)
 
     def list_djs(self) -> list[DJProfile]:
@@ -186,7 +197,7 @@ class DJManager:
             cursor = self.conn.execute(
                 "SELECT id, stage_name, station_name, gender, sexual_orientation, "
                 "music_genre, generation, image_path, voice, tone, speed, "
-                "news_sources, news_speed FROM djs ORDER BY stage_name"
+                "news_sources, news_speed, weather_speed FROM djs ORDER BY stage_name"
             )
             rows = cursor.fetchall()
 
@@ -198,12 +209,18 @@ class DJManager:
                 cursor = self.conn.execute(
                     "SELECT id, stage_name, station_name, gender, sexual_orientation, "
                     "music_genre, generation, image_path, voice, tone, speed, "
-                    "news_sources, news_speed FROM djs ORDER BY stage_name"
+                    "news_sources, news_speed, weather_speed FROM djs ORDER BY stage_name"
                 )
                 rows = cursor.fetchall()
 
             cols = [desc[0] for desc in cursor.description]
-            return [DJProfile(**dict(zip(cols, row))) for row in rows]
+            profiles = []
+            for row in rows:
+                data = dict(zip(cols, row))
+                if data.get("voice"):
+                    data["voice"] = normalize_voice(data["voice"])
+                profiles.append(DJProfile(**data))
+            return profiles
 
     def delete_dj(self, dj_id: str) -> None:
         """Delete a DJ profile."""
@@ -224,7 +241,8 @@ DEFAULT_DJS = [
         generation="gen_x",
         voice="en-US-BrianNeural",  # Friendly, upbeat morning voice
         tone="enthusiastic",
-        speed=1.05,
+        speed=1.0,
+        image_path="morning_mike.jpg",
     ),
     DJProfile(
         id="night_nina",
@@ -234,9 +252,10 @@ DEFAULT_DJS = [
         sexual_orientation="lesbian",
         music_genre="pop",
         generation="millennial",
-        voice="en-US-CoraNeural",  # Bright, confident evening voice
+        voice="en-US-AvaNeural",
         tone="energetic",
-        speed=1.1,
+        speed=1.0,
+        image_path="night_nina.jpg",
     ),
     DJProfile(
         id="sunny_sam",
@@ -246,9 +265,23 @@ DEFAULT_DJS = [
         sexual_orientation="pan",
         music_genre="hip-hop",
         generation="gen_z",
-        voice="en-US-JacobNeural",  # Young, contemporary voice
+        voice="en-US-EricNeural",
         tone="enthusiastic",
-        speed=1.2,
+        speed=1.0,
+        image_path="sunny_sam.jpg",
+    ),
+    DJProfile(
+        id="late_night_leo",
+        stage_name="Late Night Leo",
+        station_name="Jazz 88.3 FM",
+        gender="male",
+        sexual_orientation="straight",
+        music_genre="jazz",
+        generation="boomer",
+        voice="en-US-ChristopherNeural",
+        tone="smooth",
+        speed=1.0,
+        image_path="late_night_leo.jpg",
     ),
 ]
 

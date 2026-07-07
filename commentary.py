@@ -12,6 +12,7 @@ from pathlib import Path
 
 import requests
 
+import logging
 from llm_client import get_llm_client
 from playlist import Track
 from sqlite_db import open_db
@@ -28,6 +29,7 @@ WIKIDATA_URL = "https://www.wikidata.org/w/api.php"
 # MusicBrainz asks for <=1 request/second; keep a small gap between MB calls.
 MB_MIN_INTERVAL = 1.1
 _mb_last_call = 0.0
+_mb_lock = threading.Lock()
 
 # Below this many characters, a Wikipedia extract is treated as too thin and we
 # fall back to MusicBrainz for structured info.
@@ -41,6 +43,8 @@ CREATE TABLE IF NOT EXISTS commentary_cache (
     artist TEXT PRIMARY KEY,
     blurb TEXT NOT NULL,
     source TEXT NOT NULL,
+    artist_type TEXT,
+    artist_gender TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -102,7 +106,7 @@ def _wiki_artist_extract(session: requests.Session, artist: str) -> str | None:
     return direct[0] if direct else None
 
 
-def _musicbrainz_facts(session: requests.Session, artist: str) -> str | None:
+def _musicbrainz_facts(session: requests.Session, artist: str) -> tuple[str, str | None, str | None] | None:
     """Structured fallback: type, country, active years, tags/genres."""
     params = {"query": f'artist:"{artist}"', "fmt": "json", "limit": 1}
     try:
@@ -113,8 +117,11 @@ def _musicbrainz_facts(session: requests.Session, artist: str) -> str | None:
             return None
         a = artists[0]
         bits = [a.get("name", artist)]
-        if a.get("type"):
-            bits.append(f"({a['type']})")
+        artist_type = a.get("type")
+        artist_gender = a.get("gender")
+
+        if artist_type:
+            bits.append(f"({artist_type})")
         if a.get("country"):
             bits.append(f"from {a['country']}")
         life = a.get("life-span", {})
@@ -126,7 +133,7 @@ def _musicbrainz_facts(session: requests.Session, artist: str) -> str | None:
         tags = [t["name"] for t in a.get("tags", [])[:3]] if a.get("tags") else []
         if tags:
             bits.append("genres: " + ", ".join(tags))
-        return " ".join(bits)
+        return " ".join(bits), artist_type, artist_gender
     except (requests.RequestException, KeyError, ValueError):
         return None
 
@@ -134,17 +141,18 @@ def _musicbrainz_facts(session: requests.Session, artist: str) -> str | None:
 def _mb_get(session: requests.Session, url: str, params: dict) -> dict | None:
     """Rate-limited MusicBrainz GET returning parsed JSON, or None."""
     global _mb_last_call
-    wait = MB_MIN_INTERVAL - (time.monotonic() - _mb_last_call)
-    if wait > 0:
-        time.sleep(wait)
-    try:
-        r = session.get(url, params={**params, "fmt": "json"}, timeout=10)
-        _mb_last_call = time.monotonic()
-        r.raise_for_status()
-        return r.json()
-    except (requests.RequestException, ValueError):
-        _mb_last_call = time.monotonic()
-        return None
+    with _mb_lock:
+        wait = MB_MIN_INTERVAL - (time.monotonic() - _mb_last_call)
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            r = session.get(url, params={**params, "fmt": "json"}, timeout=10)
+            _mb_last_call = time.monotonic()
+            r.raise_for_status()
+            return r.json()
+        except (requests.RequestException, ValueError):
+            _mb_last_call = time.monotonic()
+            return None
 
 
 def _mb_resolve_artist_mbid(session, artist: str, title: str | None) -> str | None:
@@ -195,34 +203,56 @@ def _wikidata_enwiki_title(session: requests.Session, qid: str) -> str | None:
         return None
 
 
-def fetch_artist_source(artist: str, title: str | None = None) -> str | None:
+def fetch_artist_source(artist: str, title: str | None = None) -> tuple[str | None, str | None, str | None]:
     """Best available factual source text for an artist, or None.
-
-    Resolution order: MusicBrainz (disambiguated by song title) -> Wikidata ->
-    Wikipedia extract; then a Wikipedia name/suffix heuristic; then MusicBrainz
-    structured facts as a last resort.
+    Also returns artist_type and artist_gender if available.
     """
     session = _session()
+    artist_type = None
+    artist_gender = None
+    source_blurb = None
 
     # Gold path: let the song title pin down the exact artist, then follow the
     # canonical link to Wikipedia.
     mbid = _mb_resolve_artist_mbid(session, artist, title)
     if mbid:
+        mb_data = _mb_get(session, MB_ARTIST_LOOKUP_URL + mbid, {"inc": "url-rels"})
+        if mb_data:
+            artist_type = mb_data.get("type")
+            artist_gender = mb_data.get("gender")
+
         wiki_title = _mb_wikipedia_title(session, mbid)
         if wiki_title:
             result = _wiki_summary(session, wiki_title)
             if result and len(result[0]) >= THIN_EXTRACT_CHARS:
-                return result[0]
+                source_blurb = result[0]
+                return source_blurb, artist_type, artist_gender
 
     # Heuristic path: plain name + musical disambiguation suffixes.
     extract = _wiki_artist_extract(session, artist)
     if extract and len(extract) >= THIN_EXTRACT_CHARS:
-        return extract
+        source_blurb = extract
+        return source_blurb, artist_type, artist_gender
 
-    mb = _musicbrainz_facts(session, artist)
-    if extract and mb:  # Wikipedia was thin — enrich with structured facts.
-        return f"{extract} ({mb})"
-    return extract or mb
+    # MusicBrainz structured facts as a last resort.
+    mb_facts_result = _musicbrainz_facts(session, artist) # This now returns a tuple (facts_string, type, gender)
+    if mb_facts_result:
+        mb_facts_string, mb_type, mb_gender = mb_facts_result
+        if mb_type:
+            artist_type = mb_type
+        if mb_gender:
+            artist_gender = mb_gender
+
+        if extract and mb_facts_string:  # Wikipedia was thin — enrich with structured facts.
+            source_blurb = f"{extract} ({mb_facts_string})"
+        elif mb_facts_string:
+            source_blurb = mb_facts_string
+        else:
+            source_blurb = extract # Keep the extract if no MB facts.
+    else:
+        source_blurb = extract # No MB facts, just use extract if available.
+
+    return source_blurb, artist_type, artist_gender
 
 
 class CommentaryGenerator:
@@ -234,19 +264,34 @@ class CommentaryGenerator:
         self.llm = llm or get_llm_client()
         self.target_seconds = target_seconds
 
-    def _cached(self, artist: str) -> str | None:
+    def _cached(self, artist: str) -> tuple[str, str | None, str | None] | None:
+        """Return (blurb, artist_type, artist_gender) from cache, or None if not found."""
         with self._db_lock:
-            row = self.conn.execute(
-                "SELECT blurb FROM commentary_cache WHERE artist = ?", (artist,)
-            ).fetchone()
-        return row["blurb"] if row else None
+            # Check if artist_type/gender columns exist; if not, return only blurb
+            cursor = self.conn.execute("PRAGMA table_info(commentary_cache)")
+            columns = [col[1] for col in cursor.fetchall()]
+            has_type_gender = "artist_type" in columns and "artist_gender" in columns
 
-    def _store(self, artist: str, blurb: str, source: str) -> None:
+            if has_type_gender:
+                row = self.conn.execute(
+                    "SELECT blurb, artist_type, artist_gender FROM commentary_cache WHERE artist = ?", (artist,)
+                ).fetchone()
+                if row:
+                    return row["blurb"], row["artist_type"], row["artist_gender"]
+            else:
+                row = self.conn.execute(
+                    "SELECT blurb FROM commentary_cache WHERE artist = ?", (artist,)
+                ).fetchone()
+                if row:
+                    return row["blurb"], None, None # If columns don't exist, return None for type/gender
+        return None
+
+    def _store(self, artist: str, blurb: str, source: str, artist_type: str | None, artist_gender: str | None) -> None:
         with self._db_lock:
             self.conn.execute(
-                "INSERT OR REPLACE INTO commentary_cache (artist, blurb, source) "
-                "VALUES (?, ?, ?)",
-                (artist, blurb, source),
+                "INSERT OR REPLACE INTO commentary_cache (artist, blurb, source, artist_type, artist_gender) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (artist, blurb, source, artist_type, artist_gender),
             )
             self.conn.commit()
 
@@ -269,25 +314,32 @@ class CommentaryGenerator:
         max_tokens = max(80, int(word_budget * 2.2))
         return self.llm.generate(prompt, max_tokens=max_tokens).strip().strip('"')
 
-    def get_commentary(self, track: Track, use_cache: bool = True) -> str | None:
-        """Return a spoken-ready blurb for the track's artist, or None if we
+    def get_commentary(self, track: Track, use_cache: bool = True) -> tuple[str | None, str | None, str | None]:
+        """Return (blurb, artist_type, artist_gender) for the track's artist, or (None, None, None) if we
         have no facts (e.g. 'Unknown Artist' clips)."""
         artist = track.artist
         if artist.lower().startswith("unknown"):
-            return None
+            return None, None, None
 
         if use_cache:
-            cached = self._cached(artist)
-            if cached:
-                return cached
+            cached_result = self._cached(artist)
+            if cached_result:
+                logging.debug(f"[Commentary] Returning cached blurb for {artist}.")
+                return cached_result
 
-        source = fetch_artist_source(artist, track.title)
+        source, artist_type, artist_gender = fetch_artist_source(artist, track.title)
         if not source:
-            return None
+            logging.debug(f"[Commentary] No source facts found for {artist}.")
+            return None, artist_type, artist_gender # Still return type/gender if available
 
+        logging.debug(f"[Commentary] Condensing new blurb for {artist} from source ({len(source)} chars).")
         blurb = self._condense(artist, source)
-        self._store(artist, blurb, source)
-        return blurb
+        if blurb:
+            self._store(artist, blurb, source, artist_type, artist_gender)
+            logging.debug(f"[Commentary] New blurb stored for {artist} (length: {len(blurb)}).")
+        else:
+            logging.debug(f"[Commentary] No blurb condensed for {artist}.")
+        return blurb, artist_type, artist_gender
 
 
 if __name__ == "__main__":

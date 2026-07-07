@@ -1,13 +1,14 @@
 """Text-to-speech: synthesize commentary using Microsoft Edge voices (free)."""
 import asyncio
 import hashlib
-import sqlite3
 import threading
 from pathlib import Path
+import logging
 
 import edge_tts
 
 from sqlite_db import open_db
+from voices import DEFAULT_VOICE, normalize_voice, synthesis_candidates
 
 TTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS tts_cache (
@@ -18,12 +19,8 @@ CREATE TABLE IF NOT EXISTS tts_cache (
 );
 """
 
-# Edge TTS voices; pick one. Common choices:
-# - "en-US-GuyNeural" (male, neutral)
-# - "en-US-AriaNeural" (female, friendly)
-# - "en-US-JennyNeural" (female, natural)
-VOICE = "en-US-AriaNeural"
-
+# Default when no DJ voice is configured.
+VOICE = DEFAULT_VOICE
 
 def _text_hash(text: str, voice: str = "", rate: float = 1.0) -> str:
     """Hash text (plus voice/rate) for cache lookups.
@@ -44,10 +41,18 @@ async def _synthesize_async(text: str, out_path: Path, voice: str, rate: float =
         voice: Edge TTS voice name (e.g., "en-US-AriaNeural")
         rate: Speech rate multiplier (0.5 = half speed, 2.0 = double speed)
     """
-    # Convert rate to Edge TTS format: 1.0 = normal, <1.0 = slower, >1.0 = faster
-    rate_str = f"+{int((rate - 1.0) * 100)}%" if rate >= 1.0 else f"{int((rate - 1.0) * 100)}%"
-    communicate = edge_tts.Communicate(text, voice=voice, rate=rate_str)
-    await communicate.save(str(out_path))
+    import logging
+    try:
+        # Convert rate to Edge TTS format: 1.0 = normal, <1.0 = slower, >1.0 = faster
+        rate_str = f"+{int((rate - 1.0) * 100)}%" if rate >= 1.0 else f"-{int(abs(rate - 1.0) * 100)}%"
+        communicate = edge_tts.Communicate(text, voice=voice, rate=rate_str)
+        
+        logging.debug(f"[TTS] Attempting to save audio to: {out_path} with voice: {voice}, rate: {rate_str}")
+        await communicate.save(str(out_path))
+        logging.debug(f"[TTS] Audio successfully saved to: {out_path}")
+    except Exception as e:
+        logging.error(f"[TTS] Error during _synthesize_async for text '{text[:50]}...': {e}", exc_info=True)
+        raise
 
 
 class TTSGenerator:
@@ -62,7 +67,7 @@ class TTSGenerator:
         """
         self.db_path = db_path
         self.cache_dir = cache_dir
-        self.voice = voice or VOICE
+        self.voice = normalize_voice(voice)
         self.rate = rate
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.conn, self._db_lock = open_db(db_path, check_same_thread=False)
@@ -96,22 +101,109 @@ class TTSGenerator:
             )
             self.conn.commit()
 
-    def generate(self, text: str) -> Path:
+
+    def generate(self, text: str) -> Path | None:
         """Synthesize text to MP3, cache it, return the audio path.
 
         If the text has been synthesized before, return the cached MP3 path
         without re-synthesizing (instant, reuses Edge's audio).
+        Returns Path to audio file, or None if generation failed.
         """
-        text_hash = _text_hash(text, self.voice, self.rate)
-        cached = self._cached_path(text_hash)
-        if cached:
-            return cached
+        import time
 
-        # Generate: file naming uses hash for uniqueness + brevity.
-        audio_path = self.cache_dir / f"{text_hash}.mp3"
-        asyncio.run(_synthesize_async(text, audio_path, self.voice, self.rate))
-        self._store(text, text_hash, audio_path)
-        return audio_path
+        candidates = synthesis_candidates(self.voice, self.rate)
+        attempts: list[tuple[str, float]] = []
+
+        for voice, rate in candidates:
+            attempts.append((voice, rate))
+            text_hash = _text_hash(text, voice, rate)
+            cached = self._cached_path(text_hash)
+            if cached:
+                logging.debug(
+                    f"[TTS] Returning cached audio for '{text[:50]}...' "
+                    f"(voice={voice}, rate={rate}): {cached}"
+                )
+                return cached
+
+            audio_path = self.cache_dir / f"{text_hash}.mp3"
+            if audio_path.exists():
+                try:
+                    audio_path.unlink()
+                except OSError:
+                    pass
+
+            try:
+                logging.debug(
+                    f"[TTS] Synthesizing '{text[:50]}...' with voice={voice}, rate={rate}"
+                )
+                asyncio.run(_synthesize_async(text, audio_path, voice, rate))
+                if audio_path.exists() and audio_path.stat().st_size > 0:
+                    self._store(text, text_hash, audio_path)
+                    logging.info(f"[TTS] Generated audio with voice={voice}, rate={rate}")
+                    return audio_path
+                logging.warning(f"[TTS] Synthesis produced empty file with voice={voice}, rate={rate}")
+            except Exception as e:
+                logging.warning(f"[TTS] Attempt failed for voice={voice}, rate={rate}: {e}", exc_info=True)
+
+            time.sleep(0.25)
+
+        logging.error(f"[TTS] All synthesis attempts failed for text (tried={attempts})")
+        return None
+
+    def clean_stale_cache(self, max_age_days: int = 7) -> int:
+        """Remove cache entries older than max_age_days and orphaned files.
+
+        Returns the number of entries cleaned.
+        """
+        import time as time_module
+        removed = 0
+        with self._db_lock:
+            # Remove DB entries older than max_age_days
+            rows = self.conn.execute(
+                "SELECT text_hash, audio_path FROM tts_cache "
+                "WHERE created_at < datetime('now', ?)",
+                (f"-{max_age_days} days",),
+            ).fetchall()
+            for row in rows:
+                path = Path(row["audio_path"])
+                try:
+                    if path.exists():
+                        path.unlink()
+                except OSError:
+                    pass
+                self.conn.execute(
+                    "DELETE FROM tts_cache WHERE text_hash = ?", (row["text_hash"],)
+                )
+                removed += 1
+
+            # Remove DB entries whose audio file no longer exists
+            orphans = self.conn.execute(
+                "SELECT text_hash, audio_path FROM tts_cache"
+            ).fetchall()
+            for row in orphans:
+                if not Path(row["audio_path"]).exists():
+                    self.conn.execute(
+                        "DELETE FROM tts_cache WHERE text_hash = ?", (row["text_hash"],)
+                    )
+                    removed += 1
+
+            self.conn.commit()
+
+        # Remove audio files not referenced in DB
+        db_paths = set()
+        with self._db_lock:
+            rows = self.conn.execute("SELECT audio_path FROM tts_cache").fetchall()
+            db_paths = {Path(r["audio_path"]) for r in rows}
+
+        for f in self.cache_dir.glob("*.mp3"):
+            if f not in db_paths:
+                try:
+                    f.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+
+        return removed
 
 
 if __name__ == "__main__":

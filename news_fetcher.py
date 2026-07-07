@@ -1,4 +1,5 @@
 """Fetch news headlines from RSS feeds and condense via LLM."""
+import logging
 import feedparser
 
 from llm_client import get_llm_client

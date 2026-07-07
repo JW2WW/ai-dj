@@ -24,10 +24,17 @@ DEFAULT_CONFIG = {
     },
     "market": {
         "enabled": True,
-        "time": "16:00",  # Market close in US Eastern
+        "time": "16:00",
         "target_seconds": 12,
         "tickers": ["^GSPC", "^IXIC", "^DJI", "GLD", "^VIX"],
     },
+        "weather": {
+            "enabled": True,
+            "time_between_songs": True,
+            "city": None,  # e.g., "Kansas City"
+            "zip_code": None,  # e.g., "64108"
+            "play_every_n_songs": 3,
+        },
     "tts": {
         "voice": "en-US-AriaNeural",
         "cache": True,

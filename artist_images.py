@@ -3,7 +3,6 @@ import re
 import requests
 from io import BytesIO
 from pathlib import Path
-import os
 
 
 def find_local_cover_art(track_path: Path) -> bytes | None:

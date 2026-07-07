@@ -1,27 +1,28 @@
 """DJ profile manager UI: add, edit, delete, and customize DJ personas."""
+import logging
+import logging
 import tkinter as tk
-from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageDraw, ImageTk
-from io import BytesIO
 
 from dj_profile import DJManager, DJProfile, AVAILABLE_VOICES
 from news_fetcher import AVAILABLE_SOURCES
-from paths import DB_PATH, DJ_IMAGES_DIR
+from paths import DB_PATH, DJ_IMAGES_DIR, resolve_dj_image
 
 # Voice descriptions for UI
 VOICE_DESCRIPTIONS = {
     "en-US-AriaNeural": "Aria (Female, neutral)",
-    "en-US-AmberNeural": "Amber (Female, warm)",
-    "en-US-AshleyNeural": "Ashley (Female, soft)",
-    "en-US-CoraNeural": "Cora (Female, bright)",
-    "en-US-ElizabethNeural": "Elizabeth (Female, calm)",
     "en-US-JennyNeural": "Jenny (Female, natural)",
-    "en-US-MonicaNeural": "Monica (Female, professional)",
+    "en-US-AnaNeural": "Ana (Female, child)",
+    "en-US-AvaNeural": "Ava (Female, bright)",
+    "en-US-EmmaNeural": "Emma (Female, soft)",
+    "en-US-MichelleNeural": "Michelle (Female, warm)",
     "en-US-GuyNeural": "Guy (Male, neutral)",
-    "en-US-ArthurNeural": "Arthur (Male, calm)",
     "en-US-BrianNeural": "Brian (Male, friendly)",
-    "en-US-JacobNeural": "Jacob (Male, young)",
+    "en-US-ChristopherNeural": "Christopher (Male, calm)",
+    "en-US-RogerNeural": "Roger (Male, deep)",
+    "en-US-EricNeural": "Eric (Male, young)",
+    "en-US-AndrewNeural": "Andrew (Male, casual)",
 }
 
 
@@ -138,19 +139,15 @@ class DJManagerWindow:
         try:
             self.dj_listbox.delete(0, tk.END)
             self.djs = self.manager.list_djs()
-            print(f"[DJ Manager] Found {len(self.djs)} DJs")
             for i, dj in enumerate(self.djs):
                 self.dj_listbox.insert(tk.END, dj.stage_name)
-                print(f"  [{i}] {dj.stage_name}")
 
             # Select first DJ if available
             if self.djs:
                 self.dj_listbox.select_set(0)
                 self._on_dj_select(None)
         except Exception as e:
-            print(f"[DJ Manager] Error refreshing list: {e}")
-            import traceback
-            traceback.print_exc()
+            logging.error(f"[DJ Manager] Error refreshing list: {e}")
 
     def _on_dj_select(self, event):
         """Handle DJ selection."""
@@ -162,7 +159,7 @@ class DJManagerWindow:
             self.current_dj = self.djs[selection[0]]
             self._display_dj(self.current_dj)
         except Exception as e:
-            print(f"[DJ Manager] Error selecting DJ: {e}")
+            logging.error(f"[DJ Manager] Error selecting DJ: {e}")
 
     def _display_dj(self, dj: DJProfile):
         """Display DJ details in the form."""
@@ -193,9 +190,8 @@ class DJManagerWindow:
     def _display_avatar(self, dj: DJProfile):
         """Display DJ's image or placeholder."""
         if dj.image_path:
-            # image_path is stored as filename; reconstruct full path
-            image_file = DJ_IMAGES_DIR / dj.image_path if not Path(dj.image_path).is_absolute() else Path(dj.image_path)
-            if image_file.exists():
+            image_file = resolve_dj_image(dj.image_path)
+            if image_file and image_file.exists():
                 try:
                     img = Image.open(image_file)
                     img.thumbnail((200, 200), Image.Resampling.LANCZOS)
@@ -206,7 +202,7 @@ class DJManagerWindow:
                     self.avatar_label.config(image=photo, width=img.width, height=img.height)
                     return
                 except Exception as e:
-                    print(f"[DJ Manager] Failed to display avatar: {e}")
+                    logging.error(f"[DJ Manager] Failed to display avatar: {e}")
 
         # Placeholder with initials
         img = Image.new("RGB", (200, 200), color="gray")
@@ -254,7 +250,7 @@ class DJManagerWindow:
                 self._display_avatar(self.current_dj)
                 messagebox.showinfo("Success", "Image uploaded successfully")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to upload image: {e}")
+                logging.error(f"[DJ Manager] Failed to upload image: {e}")
 
     def _on_save_dj(self):
         """Save DJ profile changes."""
@@ -295,7 +291,7 @@ class DJManagerWindow:
             self._refresh_dj_list()
             messagebox.showinfo("Success", f"DJ '{self.current_dj.stage_name}' updated")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to save DJ: {e}")
+            logging.error(f"[DJ Manager] Failed to save DJ: {e}")
 
     def _on_delete_dj(self):
         """Delete the current DJ."""
@@ -313,7 +309,7 @@ class DJManagerWindow:
                 self.genre_var.set("")
                 messagebox.showinfo("Success", "DJ deleted")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to delete DJ: {e}")
+                logging.error(f"[DJ Manager] Failed to delete DJ: {e}")
 
     def _on_add_dj(self):
         """Open dialog to create a new DJ."""
@@ -421,10 +417,7 @@ class DJManagerWindow:
                 self._refresh_dj_list()
                 messagebox.showinfo("Success", f"DJ '{stage_name}' created successfully!")
             except Exception as e:
-                print(f"Error creating DJ: {e}")
-                import traceback
-                traceback.print_exc()
-                messagebox.showerror("Error", f"Failed to create DJ: {e}")
+                logging.error(f"Error creating DJ: {e}")
 
         ttk.Button(button_frame, text="Create DJ", command=on_create).pack(side=tk.RIGHT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)

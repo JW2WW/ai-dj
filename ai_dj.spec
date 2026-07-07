@@ -1,39 +1,47 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec file for AI DJ
+"""PyInstaller spec for AI DJ.
 
-from PyInstaller.utils.hooks import collect_submodules
+Build:  pyinstaller ai_dj.spec
+Output: dist/AI_DJ/AI_DJ.exe (~70 MB)
+
+Minimal exclusions — only runtime data dirs.  Let PyInstaller auto-detect
+everything else so we don't accidentally exclude a required dependency.
+"""
 import os
+from pathlib import Path
+
+import PyInstaller.utils.hooks
+
+ASSETS_DIR = Path("assets")
+
+# PyYAML has a _yaml C extension (.pyd) that must be explicitly bundled
+yaml_datas, yaml_binaries, yaml_hidden = PyInstaller.utils.hooks.collect_all("yaml")
+
+# pystray also has a C extension
+pystray_datas, pystray_binaries, pystray_hidden = PyInstaller.utils.hooks.collect_all("pystray")
 
 block_cipher = None
 
-# Collect hidden imports that PyInstaller might miss
-hidden_imports = [
-    'edge_tts',
-    'feedparser',
-    'google.genai',
-    'groq',
-    'mutagen',
-    'mutagen.id3',
-    'pystray',
-    'vlc',
-    'PIL',
-    'PIL.ImageTk',
-    'yfinance',
-]
-
 a = Analysis(
-    ['app.py'],
+    ["app.py"],
     pathex=[],
-    binaries=[],
+    binaries=yaml_binaries + pystray_binaries,
     datas=[
-        ('config.yaml', '.'),
-        ('data', '_internal/data'),
+        (str(ASSETS_DIR / "dj_images"), "assets/dj_images"),
+        ("dj_manager_ui.py", "."), # Include dj_manager_ui.py explicitly
+        ("playback_controller.py", "."), # Explicitly include playback_controller.py as a data file
+    ] + yaml_datas + pystray_datas,
+    hiddenimports=yaml_hidden + pystray_hidden + [
+        "dj_manager_ui",     # Explicitly include DJ manager UI
+        "playback_controller", # Explicitly include playback_controller
     ],
-    hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludedimports=[],
+    excludes=[
+        "data",
+        "tests",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -49,21 +57,25 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='AI_DJ',
+    name="AI_DJ",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # No console window
+    console=False,
+    disable_windowed_traceback=True,
+    argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # Add icon.ico path here if you have one
+    icon=None,
+    uac_admin=False,
+    uac_uiaccess=False,
 )
 
-coll = COLLECT(
+COLLECT(
     exe,
     a.binaries,
     a.zipfiles,
@@ -71,5 +83,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='AI_DJ',
+    name="AI_DJ",
 )

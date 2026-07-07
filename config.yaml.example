@@ -23,7 +23,7 @@ news:
 
 market:
   enabled: true
-  time: "16:00"  # What time to play market wrap? (24h format, US Eastern)
+  time: "16:00"  # When to play market wrap? (24h format, US Eastern)
   target_seconds: 12  # How long should the market wrap be?
   tickers:  # Which market indices/tickers to report
     - ^GSPC  # S&P 500
@@ -31,6 +31,13 @@ market:
     - ^DJI   # Dow Jones
     - GLD    # Gold ETF
     - ^VIX   # VIX (Volatility)
+
+weather:
+  enabled: true
+  time_between_songs: true  # Announce time & weather between tracks
+  city:  # e.g., "Kansas City" or leave blank for auto-detect
+  zip_code:  # e.g., "64108" (US only) or leave blank for auto-detect
+  play_every_n_songs: 3 # Play weather announcement every N songs
 
 tts:
   voice: en-US-AriaNeural  # Microsoft Edge voice (female, friendly)
